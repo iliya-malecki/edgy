@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+import sys
 import pydantic
 import typing as t
 
@@ -15,8 +16,28 @@ Topic_co = t.TypeVar("Topic_co", covariant=True, bound="Topic")
 class Topic(t.Generic[BM_co]):
     model: type[BM_co]
 
-    def __init_subclass__(cls, model) -> None:
-        cls.model = model
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+        for base in getattr(cls, "__orig_bases__", ()):
+            if t.get_origin(base) is Topic:
+                (model,) = t.get_args(base)
+                if isinstance(model, t.ForwardRef):
+                    type_params = getattr(cls, "__type_params__", ())
+                    model = model._evaluate(
+                        globalns=sys.modules[cls.__module__].__dict__,
+                        localns=None,
+                        type_params=type_params,
+                        recursive_guard=frozenset(),
+                    )
+                if not isinstance(model, type) or not issubclass(
+                    model, pydantic.BaseModel
+                ):
+                    raise TypeError(
+                        f"Invalid Topic model for {cls.__name__}: {model!r}"
+                    )
+                cls.model = t.cast(type[BM_co], model)
+                return
+        raise TypeError(f"Could not infer Topic model for {cls.__name__}")
 
 
 @t.final
@@ -53,16 +74,16 @@ class Delivery(pydantic.BaseModel):
     value: int
 
 
-class OrderCreated(Topic[Order], model=Order): ...
+class OrderCreated(Topic[Order]): ...
 
 
-class OrderUpldated(Topic[Order], model=Order): ...
+class OrderUpldated(Topic[Order]): ...
 
 
-class OrderCancelled(Topic[Delivery], model=Delivery): ...
+class OrderCancelled(Topic[Delivery]): ...
 
 
-class OrderRemoved(Topic[Order], model=Order): ...
+class OrderRemoved(Topic[Order]): ...
 
 
 class OrderProcessor(Edge[OrderCreated, OrderUpldated | OrderCancelled]):
