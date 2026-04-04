@@ -9,12 +9,11 @@ import sys
 import pydantic
 import typing as t
 
-BM_co = t.TypeVar("BM_co", covariant=True, bound=pydantic.BaseModel)
 Topic_co = t.TypeVar("Topic_co", covariant=True, bound="Topic")
 
 
-class Topic(t.Generic[BM_co]):
-    model: type[BM_co]
+class Topic[BM: pydantic.BaseModel]:
+    model: type[BM]
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -35,35 +34,22 @@ class Topic(t.Generic[BM_co]):
                     raise TypeError(
                         f"Invalid Topic model for {cls.__name__}: {model!r}"
                     )
-                cls.model = t.cast(type[BM_co], model)
+                cls.model = t.cast(type[BM], model)
                 return
         raise TypeError(f"Could not infer Topic model for {cls.__name__}")
 
-
-@t.final
-class Pub(t.Protocol, t.Generic[Topic_co]):
-    def __call__[M: pydantic.BaseModel](
-        self: Pub[Topic[M]],
-        # type variance magic, i want unions resolved in the covariant way, not function-param-contravariant
-        topic: type[Topic_co],  # type: ignore
-        data: M,
-    ) -> None: ...
+    @classmethod
+    def pub(cls, edge: Edge[t.Any, t.Self], data: BM) -> None: ...
+    @classmethod
+    def sub(cls, edge: Edge[t.Self, t.Any]) -> t.Iterable[BM]: ...
 
 
-@t.final
-class Sub(t.Protocol, t.Generic[Topic_co]):
-    def __call__[M: pydantic.BaseModel](
-        self: Sub[Topic[M]],
-        # type variance magic, i want unions resolved in the covariant way, not function-param-contravariant
-        topic: type[Topic_co],  # type: ignore
-    ) -> t.Iterator[M]: ...
+Input = t.TypeVar("Input", contravariant=True)
+Output = t.TypeVar("Output", contravariant=True)
 
 
-class Edge[
-    Input: Topic,
-    Output: Topic,
-]:
-    def process(self, pub: Pub[Output], sub: Sub[Input]): ...
+class Edge(t.Generic[Input, Output]):
+    def process(self): ...
 
 
 class Order(pydantic.BaseModel):
@@ -87,6 +73,6 @@ class OrderRemoved(Topic[Order]): ...
 
 
 class OrderProcessor(Edge[OrderCreated, OrderUpldated | OrderCancelled]):
-    def process(self, pub, sub):
-        for order in sub(OrderCreated):
-            pub(OrderUpldated, order)
+    def process(self):
+        for order in OrderCreated.sub(self):
+            OrderCancelled.pub(self, Delivery(value=42))
