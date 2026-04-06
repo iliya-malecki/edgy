@@ -39,16 +39,16 @@ class Topic[BM: pydantic.BaseModel]:
         raise TypeError(f"Could not infer Topic model for {cls.__name__}")
 
     @classmethod
-    def pub(cls, runtime: Runtime[t.Any, t.Self], data: BM) -> None: ...
+    def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None: ...
     @classmethod
-    def sub(cls, runtime: Runtime[t.Self, t.Any]) -> t.AsyncIterable[BM]: ...
+    def sub(cls, ctx: RuntimeContext[t.Self, t.Any]) -> t.AsyncIterable[BM]: ...
 
 
 Input = t.TypeVar("Input", contravariant=True)
 Output = t.TypeVar("Output", contravariant=True)
 
 
-class Runtime(t.Generic[Input, Output]):
+class RuntimeContext(t.Generic[Input, Output]):
     """
     Runtime context holding allowed input and output topics,
     raw client connections and other runtime dependencies.
@@ -58,7 +58,7 @@ class Runtime(t.Generic[Input, Output]):
 
 
 class Edge(t.Generic[Input, Output]):
-    runtime: Runtime[Input, Output]
+    ctx: RuntimeContext[Input, Output]
 
     async def process(self): ...
 
@@ -85,5 +85,5 @@ class OrderRemoved(Topic[Order]): ...
 
 class OrderProcessor(Edge[OrderCreated, OrderUpldated | OrderCancelled]):
     async def process(self):
-        async for order in OrderCreated.sub(self.runtime):
-            OrderCancelled.pub(self.runtime, Delivery(value=42))
+        async for order in OrderCreated.sub(self.ctx):
+            OrderCancelled.pub(self.ctx, Delivery(value=42))
