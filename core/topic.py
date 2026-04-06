@@ -1,13 +1,9 @@
-"""
-- topic must hold the knowledge of what types you can post there
-- pubsub edge must hold the knowledge of what topics it can post to
-
-"""
-
 from __future__ import annotations
 import sys
 import pydantic
 import typing as t
+
+from .runtime_context import RuntimeContext
 
 Topic_co = t.TypeVar("Topic_co", covariant=True, bound="Topic")
 
@@ -42,48 +38,3 @@ class Topic[BM: pydantic.BaseModel]:
     def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None: ...
     @classmethod
     def sub(cls, ctx: RuntimeContext[t.Self, t.Any]) -> t.AsyncIterable[BM]: ...
-
-
-Input = t.TypeVar("Input", contravariant=True)
-Output = t.TypeVar("Output", contravariant=True)
-
-
-class RuntimeContext(t.Generic[Input, Output]):
-    """
-    Runtime context holding allowed input and output topics,
-    raw client connections and other runtime dependencies.
-    """
-
-    pass
-
-
-class Edge(t.Generic[Input, Output]):
-    ctx: RuntimeContext[Input, Output]
-
-    async def process(self): ...
-
-
-class Order(pydantic.BaseModel):
-    data: str
-
-
-class Delivery(pydantic.BaseModel):
-    value: int
-
-
-class OrderCreated(Topic[Order]): ...
-
-
-class OrderUpldated(Topic[Order]): ...
-
-
-class OrderCancelled(Topic[Delivery]): ...
-
-
-class OrderRemoved(Topic[Order]): ...
-
-
-class OrderProcessor(Edge[OrderCreated, OrderUpldated | OrderCancelled]):
-    async def process(self):
-        async for order in OrderCreated.sub(self.ctx):
-            OrderCancelled.pub(self.ctx, Delivery(value=42))
