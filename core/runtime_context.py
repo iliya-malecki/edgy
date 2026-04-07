@@ -7,7 +7,7 @@ Input = t.TypeVar("Input", contravariant=True, bound=Topic)
 Output = t.TypeVar("Output", contravariant=True, bound=Topic)
 
 
-class RuntimeContext(t.Generic[Input, Output], t.Protocol):
+class RuntimeContext(t.Generic[Input, Output]):
     """
     Runtime context holding allowed input and output topics,
     raw client connections and other runtime dependencies.
@@ -19,6 +19,7 @@ class RuntimeContext(t.Generic[Input, Output], t.Protocol):
         to validate that data is compatible with {Topic.__name__}.model
         """
         ...
+
     def unsafe_sub(self, topic: type[Input]) -> t.AsyncIterable[t.Any]:
         f"""
         Unsafe at the type level. It is implementors responsibility 

@@ -3,11 +3,12 @@ import pydantic
 import typing as t
 
 from .runtime_context import RuntimeContext
+from .config_dict import ConfigDict
 
 
 class Topic[BM: pydantic.BaseModel]:
     model: type[BM]
-    name: str
+    config: ConfigDict
 
     @classmethod
     def _validate_topic_subclass(cls) -> None:
@@ -27,7 +28,6 @@ class Topic[BM: pydantic.BaseModel]:
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
         cls._validate_topic_subclass()
-        cls.name = cls.__name__
 
     @classmethod
     def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None:
