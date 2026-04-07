@@ -1,10 +1,10 @@
 from __future__ import annotations
-import typing as t
 
-from .runtime_context import RuntimeContext, Input, Output
+from .runtime_context import RuntimeContext
+from .topic import Topic
 
 
-class Edge(t.Generic[Input, Output]):
+class Edge[Input: Topic, Output: Topic]:
     ctx: RuntimeContext[Input, Output]
 
     async def process(self): ...
