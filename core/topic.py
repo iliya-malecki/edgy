@@ -4,30 +4,16 @@ import typing as t
 
 from .runtime_context import RuntimeContext
 from .config_dict import ConfigDict
+from . import util
 
 
 class Topic[BM: pydantic.BaseModel]:
     model: type[BM]
     config: ConfigDict
 
-    @classmethod
-    def _validate_topic_subclass(cls) -> None:
-        for base in getattr(cls, "__orig_bases__", ()):
-            if t.get_origin(base) is Topic:
-                (model,) = t.get_args(base)
-                if not isinstance(model, type) or not issubclass(
-                    model, pydantic.BaseModel
-                ):
-                    raise TypeError(
-                        f"Invalid Topic model for {cls.__name__}: {model!r}"
-                    )
-                cls.model = t.cast(type[BM], model)
-                return
-        raise TypeError(f"Could not infer Topic model for {cls.__name__}")
-
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
-        cls._validate_topic_subclass()
+        util.validate_flat_subclassing(cls, Topic)
 
     @classmethod
     def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None:
