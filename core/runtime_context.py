@@ -1,21 +1,29 @@
 from __future__ import annotations
 import typing as t
 import pydantic
-from .topic import Topic
+
+if t.TYPE_CHECKING:
+    from .topic import Topic
 
 
 # Input and Output must be kept contravariant
-class RuntimeContext[Input: Topic, Output: Topic]:
+class RuntimeContext[Input: "Topic", Output: "Topic"]:
     """
-    Runtime context holding allowed input and output topics,
-    raw client connections and other runtime dependencies.
+    Holds the set of topics an edge may pub/sub and owns the raw
+    transport clients. Transport-specific subclasses implement
+    `unsafe_pub` / `unsafe_sub` and override `start` / `stop` to
+    manage connections.
     """
 
     def __init__(
-        self, allowed_input: set[type[Topic]], allowed_output: set[type[Topic]]
+        self,
+        allowed_input: set[type["Topic"]],
+        allowed_output: set[type["Topic"]],
+        owner: str = "",
     ) -> None:
         self.allowed_input = allowed_input
         self.allowed_output = allowed_output
+        self.owner = owner
 
     def guard_input_topic(self, topic: type[Input]) -> bool:
         return topic in self.allowed_input
@@ -23,25 +31,29 @@ class RuntimeContext[Input: Topic, Output: Topic]:
     def guard_output_topic(self, topic: type[Output]) -> bool:
         return topic in self.allowed_output
 
-    def unsafe_pub[M: pydantic.BaseModel](
+    async def start(self) -> None:
+        """Initialise transport clients. No-op by default."""
+
+    async def stop(self) -> None:
+        """Tear down transport clients. No-op by default."""
+
+    async def unsafe_pub[M: pydantic.BaseModel](
         self,
-        topic: type[Topic[M]],
+        topic: type["Topic[M]"],
         data: M,
     ) -> None:
-        f"""
-        Unsafe at the type level. It is implementors responsibility
-        to validate that topic is in the allowed set of topics for this runtime context.
-        Use {RuntimeContext.guard_output_topic.__name__} for that.
         """
-        ...
+        Unsafe at the type level. Implementor must validate the topic
+        is in `allowed_output` (use `guard_output_topic`).
+        """
+        raise NotImplementedError
 
     def unsafe_sub[M: pydantic.BaseModel](
         self,
-        topic: type[Topic[M]],
-    ) -> t.AsyncIterable[M]:
-        f"""
-        Unsafe at the type level. It is implementors responsibility
-        to validate that topic is in the allowed set of topics for this runtime context
-        Use {RuntimeContext.guard_input_topic.__name__} for that.
+        topic: type["Topic[M]"],
+    ) -> t.AsyncIterator[M]:
         """
-        ...
+        Unsafe at the type level. Implementor must validate the topic
+        is in `allowed_input` (use `guard_input_topic`).
+        """
+        raise NotImplementedError
