@@ -28,7 +28,10 @@ class KafkaRuntimeContext(RuntimeContext):
     """
 
     bootstrap_servers: t.ClassVar[str]
-    group_id_prefix: t.ClassVar[str] = "edgy"
+    # Default to "latest" so a new group does not silently replay the
+    # entire retention window. Subclasses that want replay should set
+    # `auto_offset_reset = "earliest"` explicitly.
+    auto_offset_reset: t.ClassVar[str] = "latest"
 
     def __init__(
         self,
@@ -79,19 +82,25 @@ class KafkaRuntimeContext(RuntimeContext):
     ) -> t.AsyncIterator[M]:
         assert isinstance(topic.config, KafkaConfig)
         cfg = topic.config
-        group_id = cfg.group_id or f"{self.group_id_prefix}.{self.owner}"
         consumer = AIOKafkaConsumer(
             cfg.topic,
             bootstrap_servers=self.bootstrap_servers,
-            group_id=group_id,
+            group_id=cfg.group_id,
             enable_auto_commit=True,
-            auto_offset_reset="earliest",
+            auto_offset_reset=self.auto_offset_reset,
         )
         await consumer.start()
         model_cls = topic.model
         try:
             async for msg in consumer:
-                yield model_cls.model_validate_json(msg.value)
+                try:
+                    parsed = model_cls.model_validate_json(msg.value)
+                except pydantic.ValidationError as e:
+                    raise ValueError(
+                        f"Invalid message on Kafka topic {cfg.topic!r} "
+                        f"for model {model_cls.__name__}: {e}"
+                    ) from e
+                yield parsed
         finally:
             try:
                 await consumer.stop()

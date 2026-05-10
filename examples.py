@@ -42,15 +42,26 @@ class Delivery(pydantic.BaseModel):
 
 
 class OrderCreated(Topic[Order]):
-    config = KafkaConfig(topic="orders.created")
+    config = KafkaConfig(
+        topic="orders.created",
+        group_id="orders.created.processor",
+    )
 
 
 class OrderUpdated(Topic[Order]):
-    config = KafkaConfig(topic="orders.updated")
+    # group_id required by KafkaConfig but unused: this topic is only
+    # published in the demo. Set so the example is self-consistent.
+    config = KafkaConfig(
+        topic="orders.updated",
+        group_id="orders.updated.unused",
+    )
 
 
 class OrderCancelled(Topic[Delivery]):
-    config = KafkaConfig(topic="orders.cancelled")
+    config = KafkaConfig(
+        topic="orders.cancelled",
+        group_id="orders.cancelled.logger",
+    )
 
 
 class OrderProcessor(Edge[OrderCreated, OrderUpdated | OrderCancelled]):

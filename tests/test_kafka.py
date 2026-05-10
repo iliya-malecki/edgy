@@ -23,11 +23,11 @@ class Order(pydantic.BaseModel):
 
 
 class OrderCreated(Topic[Order]):
-    config = KafkaConfig(topic="orders.created")
+    config = KafkaConfig(topic="orders.created", group_id="oc.echo")
 
 
 class OrderUpdated(Topic[Order]):
-    config = KafkaConfig(topic="orders.updated")
+    config = KafkaConfig(topic="orders.updated", group_id="ou.echo")
 
 
 class Echo(Edge[OrderCreated, OrderUpdated]):
@@ -156,7 +156,8 @@ async def test_runtime_wires_aiokafka_end_to_end():
     c = consumers[0]
     assert c.topics == ("orders.created",)
     assert c.kwargs["bootstrap_servers"] == "kafka:9092"
-    assert c.kwargs["group_id"] == f"edgy.{Echo.__module__}.Echo"
+    assert c.kwargs["group_id"] == "oc.echo"
+    assert c.kwargs["auto_offset_reset"] == "latest"
     assert c.started and c.stopped
 
 
@@ -182,7 +183,11 @@ async def test_publish_uses_explicit_key():
     fake = _FakeProducer()
 
     class Keyed(Topic[Order]):
-        config = KafkaConfig(topic="k", key=lambda d: d.data)
+        config = KafkaConfig(
+            topic="k",
+            group_id="k.unused",
+            key=lambda d: d.data,
+        )
 
     with patch(
         "extensions.kafka.runtime_context.AIOKafkaProducer",
@@ -202,7 +207,7 @@ async def test_publish_uses_explicit_key():
 
 
 @pytest.mark.asyncio
-async def test_explicit_group_id_overrides_owner():
+async def test_subscribe_uses_kafka_config_group_id():
     class Grouped(Topic[Order]):
         config = KafkaConfig(topic="g", group_id="my-group")
 
@@ -236,3 +241,33 @@ async def test_explicit_group_id_overrides_owner():
             pass
 
     assert consumers[0].kwargs["group_id"] == "my-group"
+
+
+@pytest.mark.asyncio
+async def test_poisoned_message_raises_with_context():
+    class T(Topic[Order]):
+        config = KafkaConfig(topic="poison", group_id="poison.g")
+
+    bad = _FakeMsg(b'{"not_data_field": 42}')
+
+    def consumer_factory(*a, **kw):
+        c = _FakeConsumer(*a, **kw)
+        c.feed([bad.value])
+        return c
+
+    with patch(
+        "extensions.kafka.runtime_context.AIOKafkaConsumer",
+        side_effect=consumer_factory,
+    ):
+        ctx = FakeKafka(
+            allowed_input={T},
+            allowed_output=set(),
+            owner="X",
+        )
+
+        async def drain():
+            async for _ in ctx.unsafe_sub(T):
+                pass
+
+        with pytest.raises(ValueError, match="Invalid message on Kafka topic 'poison'"):
+            await asyncio.wait_for(drain(), timeout=0.5)
