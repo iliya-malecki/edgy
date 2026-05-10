@@ -8,24 +8,42 @@ from . import util
 
 
 class Topic[BM: pydantic.BaseModel]:
-    model: type[BM]
     config: ConfigDict
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
         util.validate_flat_subclassing(cls, Topic)
-        if "model" in cls.__dict__:
-            return
+
+    @classmethod
+    def get_model(cls) -> type[pydantic.BaseModel]:
+        """
+        Resolve the `BM` generic argument lazily, on first call. Kept off
+        `__init_subclass__` on purpose: doing it eagerly forces every
+        topic module to import every domain model + transport config at
+        class-definition time, which means a graph-extraction tool that
+        wants to enumerate topics has to import the rest of the app.
+        Doing it here means the topic class can be defined with a
+        forward-ref generic and still resolve when a transport actually
+        needs the model.
+        """
         for base in getattr(cls, "__orig_bases__", ()):
             if t.get_origin(base) is Topic:
                 args = t.get_args(base)
-                if (
-                    args
-                    and isinstance(args[0], type)
-                    and issubclass(args[0], pydantic.BaseModel)
+                if not args:
+                    raise TypeError(
+                        f"{cls.__name__} has no Topic[...] generic argument."
+                    )
+                model = args[0]
+                if not (
+                    isinstance(model, type)
+                    and issubclass(model, pydantic.BaseModel)
                 ):
-                    cls.model = args[0]
-                    return
+                    raise TypeError(
+                        f"{cls.__name__}'s generic argument {model!r} did "
+                        f"not resolve to a pydantic.BaseModel subclass."
+                    )
+                return model
+        raise TypeError(f"{cls.__name__} does not extend Topic[SomeModel].")
 
     @classmethod
     async def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None:

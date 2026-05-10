@@ -83,9 +83,17 @@ class _FakeProducer:
         self.sent.append((topic, value, key))
 
 
-def test_topic_model_auto_derived():
-    assert OrderCreated.model is Order
-    assert OrderUpdated.model is Order
+def test_topic_get_model_resolves_lazily():
+    assert OrderCreated.get_model() is Order
+    assert OrderUpdated.get_model() is Order
+
+
+def test_topic_get_model_with_unresolved_forward_ref_raises_at_call():
+    class Stringy(Topic["NotAClass"]):  # type: ignore[valid-type]
+        config = KafkaConfig(topic="x", group_id="x.g")
+
+    with pytest.raises(TypeError, match="did not resolve"):
+        Stringy.get_model()
 
 
 def test_subclass_missing_bootstrap_servers_fails_at_instantiation():

@@ -90,7 +90,7 @@ class KafkaRuntimeContext(RuntimeContext):
             auto_offset_reset=self.auto_offset_reset,
         )
         await consumer.start()
-        model_cls = topic.model
+        model_cls = topic.get_model()
         try:
             async for msg in consumer:
                 try:
