@@ -15,6 +15,15 @@ class Topic[BM: pydantic.BaseModel]:
         super().__init_subclass__()
         util.validate_flat_subclassing(cls, Topic)
 
+        # Extract the BaseModel type from generic parameters
+        for base in getattr(cls, "__orig_bases__", ()):
+            origin = t.get_origin(base)
+            if origin is Topic:
+                args = t.get_args(base)
+                if args:
+                    cls.model = args[0]
+                break
+
     @classmethod
     def pub(cls, ctx: RuntimeContext[t.Any, t.Self], data: BM) -> None:
         return ctx.unsafe_pub(cls, data)
