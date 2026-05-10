@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-import typing as t
 
 from .edge import Edge
 from .runtime_context import RuntimeContext
@@ -15,14 +14,12 @@ class Runtime:
         self,
         edge: type[T],
         context: type[RuntimeContext],
-        **ctx_kwargs: t.Any,
     ) -> T:
         connectivity = edge.parse_connectivity()
         ctx = context(
             connectivity["inputs"],
             connectivity["outputs"],
             owner=edge.__qualname__,
-            **ctx_kwargs,
         )
         instance = edge(ctx)
         self.edges.append(instance)

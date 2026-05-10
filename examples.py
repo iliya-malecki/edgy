@@ -4,7 +4,7 @@ Runnable two-edge demo over Kafka.
 - A topic carries one pydantic model and one Kafka topic name.
 - An edge declares which topics it may consume from / publish to via
   its generic parameters. The Runtime wires each edge to its own
-  `KafkaRuntimeContext`.
+  `RuntimeContext` instance.
 
 Run a local Kafka, e.g.
 
@@ -29,7 +29,8 @@ from extensions.kafka.runtime_context import KafkaRuntimeContext
 from extensions.kafka.config_dict import KafkaConfig
 
 
-BOOTSTRAP_SERVERS = "localhost:9092"
+class LocalKafka(KafkaRuntimeContext):
+    bootstrap_servers = "localhost:9092"
 
 
 class Order(pydantic.BaseModel):
@@ -70,8 +71,8 @@ class CancellationLogger(Edge[OrderCancelled, OrderCancelled]):
 
 async def main() -> None:
     rt = Runtime()
-    rt.add(OrderProcessor, KafkaRuntimeContext, bootstrap_servers=BOOTSTRAP_SERVERS)
-    rt.add(CancellationLogger, KafkaRuntimeContext, bootstrap_servers=BOOTSTRAP_SERVERS)
+    rt.add(OrderProcessor, LocalKafka)
+    rt.add(CancellationLogger, LocalKafka)
     await rt.run()
 
 

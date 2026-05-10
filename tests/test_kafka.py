@@ -1,6 +1,6 @@
 """
 Verifies KafkaRuntimeContext wires aiokafka correctly without needing
-a live broker. Mocks AIOKafkaProducer / AIOKafkaConsumer.
+a live broker, plus connectivity guards on the base RuntimeContext.
 """
 from __future__ import annotations
 import asyncio
@@ -12,6 +12,10 @@ import pytest
 from core import Topic, Edge, Runtime
 from extensions.kafka.runtime_context import KafkaRuntimeContext
 from extensions.kafka.config_dict import KafkaConfig
+
+
+class FakeKafka(KafkaRuntimeContext):
+    bootstrap_servers = "kafka:9092"
 
 
 class Order(pydantic.BaseModel):
@@ -84,6 +88,25 @@ def test_topic_model_auto_derived():
     assert OrderUpdated.model is Order
 
 
+def test_subclass_missing_bootstrap_servers_fails_at_definition():
+    with pytest.raises(TypeError, match="bootstrap_servers"):
+        class NoBootstrap(KafkaRuntimeContext):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_unsafe_pub_rejects_topic_not_in_allowed_output():
+    ctx = FakeKafka(allowed_input=set(), allowed_output=set(), owner="X")
+    with pytest.raises(PermissionError, match="output"):
+        await ctx.unsafe_pub(OrderCreated, Order(data="x"))
+
+
+def test_unsafe_sub_rejects_topic_not_in_allowed_input():
+    ctx = FakeKafka(allowed_input=set(), allowed_output=set(), owner="X")
+    with pytest.raises(PermissionError, match="input"):
+        ctx.unsafe_sub(OrderCreated)
+
+
 @pytest.mark.asyncio
 async def test_runtime_wires_aiokafka_end_to_end():
     holder: dict[str, _FakeProducer] = {}
@@ -112,7 +135,7 @@ async def test_runtime_wires_aiokafka_end_to_end():
         side_effect=consumer_factory,
     ):
         rt = Runtime()
-        rt.add(Echo, KafkaRuntimeContext, bootstrap_servers="kafka:9092")
+        rt.add(Echo, FakeKafka)
         try:
             await asyncio.wait_for(rt.run(), timeout=0.3)
         except asyncio.TimeoutError:
@@ -137,20 +160,15 @@ async def test_runtime_wires_aiokafka_end_to_end():
 
 @pytest.mark.asyncio
 async def test_no_producer_when_no_outputs():
-    class Sink(Edge[OrderCreated, OrderCreated]):
-        async def process(self) -> None: ...
-
     fake = _FakeProducer()
-
     with patch(
         "extensions.kafka.runtime_context.AIOKafkaProducer",
         side_effect=lambda **kw: fake,
     ):
-        ctx = KafkaRuntimeContext(
+        ctx = FakeKafka(
             allowed_input={OrderCreated},
             allowed_output=set(),
             owner="Sink",
-            bootstrap_servers="x:1",
         )
         await ctx.start()
         assert not fake.started
@@ -168,11 +186,10 @@ async def test_publish_uses_explicit_key():
         "extensions.kafka.runtime_context.AIOKafkaProducer",
         side_effect=lambda **kw: fake,
     ):
-        ctx = KafkaRuntimeContext(
+        ctx = FakeKafka(
             allowed_input=set(),
             allowed_output={Keyed},
             owner="X",
-            bootstrap_servers="x:1",
         )
         await ctx.start()
         await ctx.unsafe_pub(Keyed, Order(data="abc"))
@@ -198,11 +215,10 @@ async def test_explicit_group_id_overrides_owner():
         "extensions.kafka.runtime_context.AIOKafkaConsumer",
         side_effect=consumer_factory,
     ):
-        ctx = KafkaRuntimeContext(
+        ctx = FakeKafka(
             allowed_input={Grouped},
             allowed_output=set(),
             owner="Whatever",
-            bootstrap_servers="x:1",
         )
 
         async def drain():

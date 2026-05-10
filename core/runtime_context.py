@@ -10,9 +10,14 @@ if t.TYPE_CHECKING:
 class RuntimeContext[Input: "Topic", Output: "Topic"]:
     """
     Holds the set of topics an edge may pub/sub and owns the raw
-    transport clients. Transport-specific subclasses implement
-    `unsafe_pub` / `unsafe_sub` and override `start` / `stop` to
-    manage connections.
+    transport clients.
+
+    Transport-specific subclasses implement `_publish` / `_subscribe`
+    and may override `start` / `stop` to manage connections. The
+    public `unsafe_pub` / `unsafe_sub` are non-overridable wrappers
+    that enforce the `allowed_input` / `allowed_output` guards before
+    delegating, so connectivity violations cannot reach the wire even
+    if a topic is wired to the wrong edge.
     """
 
     def __init__(
@@ -42,18 +47,33 @@ class RuntimeContext[Input: "Topic", Output: "Topic"]:
         topic: type["Topic[M]"],
         data: M,
     ) -> None:
-        """
-        Unsafe at the type level. Implementor must validate the topic
-        is in `allowed_output` (use `guard_output_topic`).
-        """
-        raise NotImplementedError
+        if not self.guard_output_topic(topic):
+            raise PermissionError(
+                f"Topic {topic.__name__} is not declared as an output of "
+                f"{self.owner!r}."
+            )
+        await self._publish(topic, data)
 
     def unsafe_sub[M: pydantic.BaseModel](
         self,
         topic: type["Topic[M]"],
     ) -> t.AsyncIterator[M]:
-        """
-        Unsafe at the type level. Implementor must validate the topic
-        is in `allowed_input` (use `guard_input_topic`).
-        """
+        if not self.guard_input_topic(topic):
+            raise PermissionError(
+                f"Topic {topic.__name__} is not declared as an input of "
+                f"{self.owner!r}."
+            )
+        return self._subscribe(topic)
+
+    async def _publish[M: pydantic.BaseModel](
+        self,
+        topic: type["Topic[M]"],
+        data: M,
+    ) -> None:
+        raise NotImplementedError
+
+    def _subscribe[M: pydantic.BaseModel](
+        self,
+        topic: type["Topic[M]"],
+    ) -> t.AsyncIterator[M]:
         raise NotImplementedError

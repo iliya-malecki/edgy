@@ -12,25 +12,40 @@ class KafkaRuntimeContext(RuntimeContext):
     """
     Kafka-backed `RuntimeContext` over `aiokafka`.
 
-    Owns one shared `AIOKafkaProducer` for all outbound topics and one
-    `AIOKafkaConsumer` per `unsafe_sub` call, so every (edge, input
-    topic) pair has its own group and can scale independently.
+    Cluster-wide settings live on the class. A deployment defines a
+    subclass that pins `bootstrap_servers` (and optionally the group
+    prefix) and passes that subclass to `Runtime.add`, e.g.
+
+        class MyKafka(KafkaRuntimeContext):
+            bootstrap_servers = "localhost:9092"
+
+        runtime.add(OrderProcessor, MyKafka)
+
+    Each instance owns one shared `AIOKafkaProducer` (lazy: only
+    created when the edge has outputs) and creates one
+    `AIOKafkaConsumer` per `_subscribe` call, so every (edge, input
+    topic) pair gets its own group and scales independently.
     """
+
+    bootstrap_servers: t.ClassVar[str]
+    group_id_prefix: t.ClassVar[str] = "edgy"
+
+    def __init_subclass__(cls, **kwargs: t.Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if not getattr(cls, "bootstrap_servers", None):
+            raise TypeError(
+                f"{cls.__name__} must set `bootstrap_servers` as a class "
+                f"attribute (e.g. `bootstrap_servers = 'localhost:9092'`)."
+            )
 
     def __init__(
         self,
         allowed_input: set[type[Topic]],
         allowed_output: set[type[Topic]],
         owner: str = "",
-        *,
-        bootstrap_servers: str,
-        group_id_prefix: str = "edgy",
     ) -> None:
         super().__init__(allowed_input, allowed_output, owner=owner)
-        self.bootstrap_servers = bootstrap_servers
-        self.group_id_prefix = group_id_prefix
         self._producer: AIOKafkaProducer | None = None
-        self._consumers: list[AIOKafkaConsumer] = []
 
     async def start(self) -> None:
         if self.allowed_output:
@@ -40,17 +55,11 @@ class KafkaRuntimeContext(RuntimeContext):
             await self._producer.start()
 
     async def stop(self) -> None:
-        for c in self._consumers:
-            try:
-                await c.stop()
-            except Exception:
-                pass
-        self._consumers.clear()
         if self._producer is not None:
             await self._producer.stop()
             self._producer = None
 
-    async def unsafe_pub[M: pydantic.BaseModel](
+    async def _publish[M: pydantic.BaseModel](
         self,
         topic: type[Topic[M]],
         data: M,
@@ -66,7 +75,7 @@ class KafkaRuntimeContext(RuntimeContext):
         key = self._encode_key(cfg.key(data) if cfg.key else None)
         await self._producer.send_and_wait(cfg.topic, payload, key=key)
 
-    async def unsafe_sub[M: pydantic.BaseModel](
+    async def _subscribe[M: pydantic.BaseModel](
         self,
         topic: type[Topic[M]],
     ) -> t.AsyncIterator[M]:
@@ -81,7 +90,6 @@ class KafkaRuntimeContext(RuntimeContext):
             auto_offset_reset="earliest",
         )
         await consumer.start()
-        self._consumers.append(consumer)
         model_cls = topic.model
         try:
             async for msg in consumer:
@@ -91,8 +99,6 @@ class KafkaRuntimeContext(RuntimeContext):
                 await consumer.stop()
             except Exception:
                 pass
-            if consumer in self._consumers:
-                self._consumers.remove(consumer)
 
     @staticmethod
     def _encode_key(k: str | bytes | None) -> bytes | None:
