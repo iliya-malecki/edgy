@@ -30,29 +30,27 @@ class KafkaRuntimeContext(RuntimeContext):
     bootstrap_servers: t.ClassVar[str]
     group_id_prefix: t.ClassVar[str] = "edgy"
 
-    def __init_subclass__(cls, **kwargs: t.Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if not getattr(cls, "bootstrap_servers", None):
-            raise TypeError(
-                f"{cls.__name__} must set `bootstrap_servers` as a class "
-                f"attribute (e.g. `bootstrap_servers = 'localhost:9092'`)."
-            )
-
     def __init__(
         self,
         allowed_input: set[type[Topic]],
         allowed_output: set[type[Topic]],
         owner: str = "",
     ) -> None:
+        if not getattr(type(self), "bootstrap_servers", None):
+            raise TypeError(
+                f"{type(self).__name__} must set `bootstrap_servers` as a "
+                f"class attribute (e.g. `bootstrap_servers = 'localhost:9092'`)."
+            )
         super().__init__(allowed_input, allowed_output, owner=owner)
         self._producer: AIOKafkaProducer | None = None
 
     async def start(self) -> None:
         if self.allowed_output:
-            self._producer = AIOKafkaProducer(
+            producer = AIOKafkaProducer(
                 bootstrap_servers=self.bootstrap_servers,
             )
-            await self._producer.start()
+            await producer.start()
+            self._producer = producer
 
     async def stop(self) -> None:
         if self._producer is not None:
@@ -67,8 +65,8 @@ class KafkaRuntimeContext(RuntimeContext):
         assert isinstance(topic.config, KafkaConfig)
         if self._producer is None:
             raise RuntimeError(
-                f"No Kafka producer; topic {topic.__name__} was not "
-                f"declared as an output of {self.owner!r}."
+                f"KafkaRuntimeContext for {self.owner!r} has no producer; "
+                f"start() was not called or did not initialise one."
             )
         cfg = topic.config
         payload = data.model_dump_json().encode("utf-8")

@@ -72,8 +72,9 @@ class RuntimeContext[Input: "Topic", Output: "Topic"]:
     ) -> None:
         raise NotImplementedError
 
-    def _subscribe[M: pydantic.BaseModel](
+    async def _subscribe[M: pydantic.BaseModel](
         self,
         topic: type["Topic[M]"],
     ) -> t.AsyncIterator[M]:
         raise NotImplementedError
+        yield  # makes this an async-generator function so subclasses can override symmetrically

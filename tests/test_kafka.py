@@ -88,10 +88,12 @@ def test_topic_model_auto_derived():
     assert OrderUpdated.model is Order
 
 
-def test_subclass_missing_bootstrap_servers_fails_at_definition():
+def test_subclass_missing_bootstrap_servers_fails_at_instantiation():
+    class NoBootstrap(KafkaRuntimeContext):
+        pass
+
     with pytest.raises(TypeError, match="bootstrap_servers"):
-        class NoBootstrap(KafkaRuntimeContext):
-            pass
+        NoBootstrap(allowed_input=set(), allowed_output=set(), owner="x")
 
 
 @pytest.mark.asyncio
@@ -154,7 +156,7 @@ async def test_runtime_wires_aiokafka_end_to_end():
     c = consumers[0]
     assert c.topics == ("orders.created",)
     assert c.kwargs["bootstrap_servers"] == "kafka:9092"
-    assert c.kwargs["group_id"] == "edgy.Echo"
+    assert c.kwargs["group_id"] == f"edgy.{Echo.__module__}.Echo"
     assert c.started and c.stopped
 
 

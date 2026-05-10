@@ -19,7 +19,7 @@ class Runtime:
         ctx = context(
             connectivity["inputs"],
             connectivity["outputs"],
-            owner=edge.__qualname__,
+            owner=f"{edge.__module__}.{edge.__qualname__}",
         )
         instance = edge(ctx)
         self.edges.append(instance)
@@ -27,16 +27,17 @@ class Runtime:
         return instance
 
     async def run(self) -> None:
-        started: list[RuntimeContext] = []
+        # Register every context before starting so a mid-start crash
+        # still gets a `stop()` call (stop is a no-op when nothing was
+        # actually initialised).
         try:
             for ctx in self.contexts:
                 await ctx.start()
-                started.append(ctx)
             if not self.edges:
                 return
             await asyncio.gather(*(e.process() for e in self.edges))
         finally:
-            for ctx in reversed(started):
+            for ctx in reversed(self.contexts):
                 try:
                     await ctx.stop()
                 except Exception:
